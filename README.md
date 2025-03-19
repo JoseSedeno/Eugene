@@ -13,7 +13,7 @@ A simple ROI calculator for clinics using Eugene’s genetic services.
 
 ## 🚀 How to Use
 ### ✅ Open the Web App (Once Deployed)
-👉 **[Click Here](https://your-streamlit-app-link/)** (Replace this with your actual Streamlit link)
+👉 **[Click Here](https://eugene-htqmr4qztrywz52bjq6kab.streamlit.app/)**
 
 ### ✅ Run Locally (For Developers)
 ```sh
