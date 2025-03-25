@@ -109,27 +109,21 @@ COMPLEX_CASE_PROBABILITIES = {
 # -------------------- INPUT SECTIONS --------------------
 
 def get_user_type():
-    if "user_type" not in st.session_state:
-        st.session_state["user_type"] = "Doctor/Clinician"
-
     return st.radio(
         "Select your role:",
         ["Doctor/Clinician", "Owner/Manager"],
         horizontal=True,
         key="user_type",
-        help="Choose your role: Doctor/Clinician for individual practice analysis or Owner/Manager for clinic-wide analysis."
+        help="Choose whether you're an individual doctor/clinician or managing a clinic. This will affect staff and logistics inputs."
     )
 
 def get_input_mode():
-    if "input_mode_selection" not in st.session_state:
-        st.session_state["input_mode_selection"] = "Simplified"
-
     return st.radio(
         "Choose Mode:",
         ["Simplified", "Advanced"],
         horizontal=True,
         key="input_mode_selection",
-        help="Simplified mode uses predefined assumptions; Advanced mode allows full manual input."
+        help="Simplified mode uses predefined assumptions. Advanced mode allows full manual input of volumes and times."
     )
 
 def get_practice_profile():
@@ -139,26 +133,33 @@ def get_practice_profile():
             "Medical Specialty",
             list(SPECIALTY_MBS.keys()),
             key="specialty",
-            help="Select the specialty of your practice. This affects billing rates and assumptions."
+            help="Select the specialty of your practice. This determines MBS rates and doctor hourly cost assumptions."
         )
 
-        operation_days = cols[1].slider("Clinical Days/Week", 1, 7, 5, help="Number of days the clinic operates each week.")
+        operation_days = cols[1].slider(
+            "Clinical Days/Week", 1, 7, 5,
+            help="Number of days per week your clinic operates."
+        )
 
         if st.session_state["input_mode_selection"] == "Advanced":
-            weeks_year = st.slider("Operational Weeks/Year", 40, 52, 48, help="Weeks per year your practice is operational. Default set to 48.")
+            weeks_year = st.slider(
+                "Operational Weeks/Year", 40, 52, 48,
+                help="Total weeks in the year that your clinic operates. Default is 48."
+            )
         else:
             weeks_year = 48
 
-        consults_per_hour = st.slider("Patient Consults/Hour", 1, 6, 3, help="Number of patient consultations per hour per doctor.")
+        consults_per_hour = st.slider(
+            "Patient Consults/Hour", 1, 6, 3,
+            help="Average number of patient consultations per doctor, per hour."
+        )
 
-        practice = {
+        return {
             "specialty": specialty,
             "operation_days": operation_days,
             "weeks_year": weeks_year,
             "consults_per_hour": consults_per_hour
         }
-
-        return practice
 
 def get_staff_costs():
     with st.expander("💰 Staff Costs", expanded=True):
@@ -167,20 +168,17 @@ def get_staff_costs():
 
         if st.session_state["input_mode_selection"] == "Advanced":
             staff = {
-                "num_admin": cols[0].number_input("Admin Staff", 1, 50, 1),
-                "num_nurse": cols[1].number_input("Nurses", 1, 50, 1),
-                "num_doctor": cols[0].number_input("Doctors", 1, 50, 1),
-                "num_genetic_counselor": cols[1].number_input("Genetic Counselors", 0, 50, 0),
-                "admin_hourly": cols[0].number_input("Admin Hourly ($)", 25, 100, 45),
-                "nurse_hourly": cols[1].number_input("Nurse Hourly ($)", 25, 100, 60),
-                "doctor_hourly": cols[0].number_input("Doctor Hourly ($)", 80, 300, 180),
-                "genetic_hourly": cols[1].number_input("Genetic Counselor Hourly ($)", 60, 200, 100)
+                "num_admin": cols[0].number_input("Admin Staff", 1, 50, 1, help="Number of administrative staff employed."),
+                "num_nurse": cols[1].number_input("Nurses", 1, 50, 1, help="Number of nurses in the clinic."),
+                "num_doctor": cols[0].number_input("Doctors", 1, 50, 1, help="Number of doctors working in the clinic."),
+                "num_genetic_counselor": cols[1].number_input("Genetic Counselors", 0, 50, 0, help="Number of in-house genetic counselors (if any)."),
+                "admin_hourly": cols[0].number_input("Admin Hourly Rate ($)", 25, 100, 45, help="Hourly cost for administrative staff."),
+                "nurse_hourly": cols[1].number_input("Nurse Hourly Rate ($)", 25, 100, 60, help="Hourly cost for nursing staff."),
+                "doctor_hourly": cols[0].number_input("Doctor Hourly Rate ($)", 80, 300, 180, help="Hourly cost for doctors, based on specialty."),
+                "genetic_hourly": cols[1].number_input("Genetic Counselor Hourly Rate ($)", 60, 200, 100, help="Hourly cost for genetic counseling staff.")
             }
         else:
-            if st.session_state["user_type"] == "Owner/Manager":
-                num_doctors = cols[0].number_input("Number of Doctors", 1, 50, 3)
-            else:
-                num_doctors = 1
+            num_doctors = cols[0].number_input("Number of Doctors", 1, 50, 3, help="Total number of doctors in the clinic.") if st.session_state["user_type"] == "Owner/Manager" else 1
 
             staff = {
                 "num_admin": 1,
@@ -200,23 +198,32 @@ def get_logistical_costs():
         with st.expander("📦 Logistical Costs", expanded=True):
             cols = st.columns(2)
             return {
-                "shipping": cols[0].number_input("Monthly Shipping Costs ($)", 0, 10000, 500),
-                "storage": cols[1].number_input("Monthly Storage Costs ($)", 0, 5000, 200),
-                "admin_logistics": cols[0].number_input("Administrative Logistics ($/month)", 0, 5000, 750),
-                "misc_logistics": cols[1].number_input("Miscellaneous Logistics ($/month)", 0, 3000, 300)
+                "shipping": cols[0].number_input("Monthly Shipping Costs ($)", 0, 10000, 500, help="Shipping and transportation costs for tests and samples."),
+                "storage": cols[1].number_input("Monthly Storage Costs ($)", 0, 5000, 200, help="Costs of storing samples or kits."),
+                "admin_logistics": cols[0].number_input("Admin Logistics ($/month)", 0, 5000, 750, help="Administrative overhead costs related to logistics."),
+                "misc_logistics": cols[1].number_input("Miscellaneous Logistics ($/month)", 0, 3000, 300, help="Any other logistics expenses.")
             }
     return {}
 
 def get_billing_model():
     with st.expander("💵 Billing Model", expanded=True):
-        model = st.radio("Billing Type", ["Bulk Bill", "Mixed", "Private"], horizontal=True, key="billing_model")
+        model = st.radio(
+            "Billing Type", ["Bulk Bill", "Mixed", "Private"], horizontal=True, key="billing_model",
+            help="Select your clinic's billing method: Bulk Bill (standard rebates), Private billing, or a combination (Mixed)."
+        )
         config = {"model": model}
 
         if model != "Bulk Bill":
-            config["private_hourly"] = st.number_input("Private Rate ($/hr)", 100, 800, 200)
+            config["private_hourly"] = st.number_input(
+                "Private Rate ($/hr)", 100, 800, 200,
+                help="Your clinic's private billing hourly rate for consultations."
+            )
 
         if model == "Mixed":
-            bulk_rate = st.slider("Bulk Percentage", 0, 100, 60)
+            bulk_rate = st.slider(
+                "Bulk Bill Percentage (%)", 0, 100, 60,
+                help="Percentage of patients billed via Bulk Bill. The rest will be billed privately."
+            )
             config["bulk_rate"] = min(bulk_rate, 100)
 
         return config
@@ -228,7 +235,9 @@ def get_test_configuration(test_category):
     if st.session_state["input_mode_selection"] == "Simplified":
         with st.expander(f"🧬 {test_category} Testing"):
             base_weekly_volume = st.number_input(
-                f"{base} Tests/Week", 0, 1000, 20, key=f"vol_{test_category}_base")
+                f"{base} Tests per Week", 0, 1000, 20, key=f"vol_{test_category}_base",
+                help=f"Estimated number of {base.lower()} tests conducted each week."
+            )
 
             complex_weekly_volume = base_weekly_volume * COMPLEX_CASE_PROBABILITIES.get(curly, 0.05)
 
@@ -249,17 +258,18 @@ def get_test_configuration(test_category):
         with st.expander(f"🧬 {test_category} Testing"):
             return {
                 base: {
-                    "weekly_volume": st.number_input(f"{base} Tests/Week", 0, 1000, 20, key=f"vol_{test_category}_base"),
-                    "admin_time": st.number_input("Admin Time (mins)", 0, 240, 20, key=f"admin_{test_category}_base"),
-                    "nurse_time": st.number_input("Nurse Time (mins)", 0, 240, 15, key=f"nurse_{test_category}_base"),
-                    "doctor_time": st.number_input("Doctor Time (mins)", 0, 240, 15, key=f"doctor_{test_category}_base")
+                    "weekly_volume": st.number_input(f"{base} Tests per Week", 0, 1000, 20, key=f"vol_{test_category}_base", help=f"Number of {base.lower()} tests conducted each week."),
+                    "admin_time": st.number_input("Admin Time (minutes per test)", 0, 240, 20, key=f"admin_{test_category}_base", help="Average admin processing time for each test."),
+                    "nurse_time": st.number_input("Nurse Time (minutes per test)", 0, 240, 15, key=f"nurse_{test_category}_base", help="Nursing time involved per test (if any)."),
+                    "doctor_time": st.number_input("Doctor Time (minutes per test)", 0, 240, 15, key=f"doctor_{test_category}_base", help="Doctor consultation time spent per test.")
                 },
                 curly: {
-                    "weekly_volume": st.number_input("Complex Cases/Week", 0, 500, 1, key=f"vol_{test_category}_complex"),
-                    "research_time": st.number_input("Research Time (mins)", 0, 480, 90, key=f"research_{test_category}_complex"),
-                    "genetic_time": st.number_input("Genetic Counseling (mins)", 0, 360, 60, key=f"genetic_{test_category}_complex")
+                    "weekly_volume": st.number_input("Complex Cases per Week", 0, 500, 1, key=f"vol_{test_category}_complex", help="Number of tests per week expected to result in complex findings."),
+                    "research_time": st.number_input("Research Time (minutes per complex case)", 0, 480, 90, key=f"research_{test_category}_complex", help="Time the doctor spends researching complex cases."),
+                    "genetic_time": st.number_input("Genetic Counseling Time (minutes per complex case)", 0, 360, 60, key=f"genetic_{test_category}_complex", help="Time spent in genetic counseling for each complex case.")
                 }
-            }
+            } 
+
 
 
 # -------------------- CALCULATION FUNCTIONS --------------------
