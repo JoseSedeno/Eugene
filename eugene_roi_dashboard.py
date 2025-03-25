@@ -1,5 +1,4 @@
 # -------------------- PAGE CONFIG --------------------
-
 import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -63,8 +62,6 @@ if "user_type" not in st.session_state:
     st.session_state["user_type"] = "Doctor/Clinician"
 if "results" not in st.session_state:
     st.session_state["results"] = {}
-
-
 
 
 # -------------------- LOGO PLACEHOLDER --------------------
