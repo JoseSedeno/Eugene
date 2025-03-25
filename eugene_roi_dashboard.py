@@ -22,12 +22,19 @@ custom_css = """
     background-position: center;
 }
 
+/* Make charts' background transparent so it blends with the app's background */
+[data-testid="stPlotlyChart"] {
+    background-color: rgba(0, 0, 0, 0) !important;
+}
+
+/* Customize general headers (h1, h2, etc.) and markdown */
 h1, h2, h3, h4, h5, h6, .stMarkdown {
     color: #1C1363;
 }
 
+/* Customize the containers (metrics, buttons, etc.) with subtle transparency */
 [data-testid="metric-container"] {
-    background-color: #F2F3FF;
+    background-color: rgba(242, 243, 255, 0.85); /* 85% opacity */
     border: 1px solid #DDD;
     border-radius: 12px;
     padding: 10px;
@@ -46,12 +53,12 @@ button.stButton:hover {
 }
 
 .st-expander {
-    background-color: #F2F3FF;
+    background-color: rgba(242, 243, 255, 0.85);
     border-radius: 10px;
 }
 
 .stDataFrame {
-    background-color: white;
+    background-color: rgba(255, 255, 255, 0.9);
     border-radius: 10px;
     box-shadow: 0 2px 5px rgba(0,0,0,0.05);
 }
@@ -61,7 +68,7 @@ button.stButton:hover {
 # Apply the custom CSS
 st.markdown(custom_css, unsafe_allow_html=True)
 
-# Initialize session state
+# Initialize session state for input mode selection and user type
 if "input_mode_selection" not in st.session_state:
     st.session_state["input_mode_selection"] = "Simplified"
 if "user_type" not in st.session_state:
@@ -618,46 +625,47 @@ def export_to_excel():
 
 
 def show_before_after_animation(results):
-    before_revenue = results['total_revenue'] - results['total_annual_savings']
-    after_revenue = results['total_revenue']
+    before_revenue = results.get('total_revenue', 0) * 0.1  # Example assumption for baseline revenue
+    after_revenue = results.get('total_revenue', 0)
 
-    fig = go.Figure()
+    data = pd.DataFrame({
+        'Scenario': ['Before Eugene', 'After Eugene'],
+        'Revenue': [before_revenue, after_revenue],
+        'Description': ['Estimated revenue before using Eugene.', 'Revenue after using Eugene.']
+    })
 
-    fig.add_trace(go.Bar(
-        x=['Before Eugene'],
-        y=[before_revenue],
-        name='Before Eugene',
-        marker_color='#1C1363',
-        hovertemplate='Revenue before adopting Eugene.'
-    ))
+    fig = px.bar(
+        data,
+        x='Scenario',
+        y='Revenue',
+        text='Revenue',
+        color='Scenario',
+        hover_data=['Description'],
+        color_discrete_map={
+            'Before Eugene': '#1C1363',
+            'After Eugene': '#6E62C5'
+        }
+    )
 
-    fig.add_trace(go.Bar(
-        x=['After Eugene'],
-        y=[0],
-        name='After Eugene',
-        marker_color='#6E62C5',
-        hovertemplate='Revenue after adopting Eugene.'
-    ))
+    fig.update_traces(
+        texttemplate='%{text:$.0f}',
+        textposition='outside',
+        hovertemplate='%{customdata[0]}: %{y:$,.0f}'
+    )
 
     fig.update_layout(
         title='Before vs. After Eugene: Revenue Impact',
-        yaxis=dict(title='Annual Revenue ($)', tickformat=',.0f'),
-        barmode='group',
-        showlegend=False,
-        plot_bgcolor='#F2F3FF',
-        font=dict(color='#1C1363'),
+        plot_bgcolor='rgba(0,0,0,0)',   # Fully transparent background
+        paper_bgcolor='rgba(0,0,0,0)',  # Fully transparent paper
         xaxis_showgrid=False,
-        yaxis_showgrid=False
+        yaxis_showgrid=False,
+        showlegend=False
     )
 
-    plot_placeholder = st.empty()
+    st.plotly_chart(fig, use_container_width=True)
 
-    for i in range(1, 21):
-        current_value = (after_revenue / 20) * i
-        fig.data[1].y = [current_value]
-        plot_placeholder.plotly_chart(fig, use_container_width=True)
-        time.sleep(0.05)
 
+# -------------------- MAIN APP LAYOUT --------------------
 
 def main():
     st.title("Eugene ROI Calculator")
@@ -818,7 +826,9 @@ def main():
                 yaxis=dict(title='Amount', tickformat=',.0f'),
                 showlegend=False,
                 xaxis_showgrid=False,
-                yaxis_showgrid=False
+                yaxis_showgrid=False,
+                plot_bgcolor='rgba(0,0,0,0)',
+                paper_bgcolor='rgba(0,0,0,0)'
             )
 
             st.plotly_chart(fig, use_container_width=True)
