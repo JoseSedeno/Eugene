@@ -13,11 +13,12 @@ st.set_page_config(page_title="Eugene ROI Calculator", layout="wide")
 custom_css = """
 <style>
 [data-testid="stAppViewContainer"] > .main {
-    background-image: url("https://raw.githubusercontent.com/JoseSedeno/Eugene/main/background.webp");
+    background-image: url("https://raw.githubusercontent.com/JoseSedeno/Eugene/main/background.jpg");
     background-size: cover;
     background-repeat: no-repeat;
     background-attachment: fixed;
 }
+
 
 h1, h2, h3, h4, h5, h6, .stMarkdown {
     color: #1C1363;
