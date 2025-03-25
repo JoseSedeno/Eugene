@@ -2,8 +2,10 @@
 import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
-import matplotlib.ticker as mticker
 from io import BytesIO
+import plotly.graph_objects as go
+import plotly.express as px
+import time
 
 st.set_page_config(page_title="Eugene ROI Calculator", layout="wide")
 
@@ -63,11 +65,11 @@ SPECIALTY_MBS = {
     }
 }
 
-# ✅ Time Assumptions Per Test (Used in Simplified Mode)
+# ✅ Updated Time Assumptions Per Test (Nurse time removed as tests are done from home)
 SIMPLIFIED_TIME = {
-    "Core": {"admin": 20, "nurse": 15, "doctor": 15, "research": 0},
-    "Couples": {"admin": 25, "nurse": 20, "doctor": 30, "research": 30},
-    "Comprehensive": {"admin": 30, "nurse": 20, "doctor": 45, "research": 60}
+    "Core": {"admin": 20, "nurse": 0, "doctor": 15, "research": 0},
+    "Couples": {"admin": 25, "nurse": 0, "doctor": 30, "research": 30},
+    "Comprehensive": {"admin": 30, "nurse": 0, "doctor": 45, "research": 60}
 }
 
 # ✅ Default Staff Costs for Simplified Mode
@@ -145,7 +147,7 @@ def get_practice_profile():
         if st.session_state["input_mode_selection"] == "Advanced":
             weeks_year = st.slider("Operational Weeks/Year", 40, 52, 48, help="Weeks per year your practice is operational. Default set to 48.")
         else:
-            weeks_year = 48  # default for simplified mode
+            weeks_year = 48
 
         consults_per_hour = st.slider("Patient Consults/Hour", 1, 6, 3, help="Number of patient consultations per hour per doctor.")
 
@@ -176,7 +178,7 @@ def get_staff_costs():
             }
         else:
             if st.session_state["user_type"] == "Owner/Manager":
-                num_doctors = cols[0].number_input("Number of Doctors", 1, 50, 3, help="Total number of doctors in the practice.")
+                num_doctors = cols[0].number_input("Number of Doctors", 1, 50, 3)
             else:
                 num_doctors = 1
 
@@ -200,8 +202,8 @@ def get_logistical_costs():
             return {
                 "shipping": cols[0].number_input("Monthly Shipping Costs ($)", 0, 10000, 500),
                 "storage": cols[1].number_input("Monthly Storage Costs ($)", 0, 5000, 200),
-                "admin_logistics": cols[0].number_input("Administrative Logistics ($/month)", 0, 3000, 750),
-                "misc_logistics": cols[1].number_input("Miscellaneous Logistics ($/month)", 0, 2000, 300)
+                "admin_logistics": cols[0].number_input("Administrative Logistics ($/month)", 0, 5000, 750),
+                "misc_logistics": cols[1].number_input("Miscellaneous Logistics ($/month)", 0, 3000, 300)
             }
     return {}
 
@@ -211,7 +213,7 @@ def get_billing_model():
         config = {"model": model}
 
         if model != "Bulk Bill":
-            config["private_hourly"] = st.number_input("Private Rate ($/hr)", 100, 500, 200)
+            config["private_hourly"] = st.number_input("Private Rate ($/hr)", 100, 800, 200)
 
         if model == "Mixed":
             bulk_rate = st.slider("Bulk Percentage", 0, 100, 60)
@@ -225,15 +227,20 @@ def get_test_configuration(test_category):
 
     if st.session_state["input_mode_selection"] == "Simplified":
         with st.expander(f"🧬 {test_category} Testing"):
+            base_weekly_volume = st.number_input(
+                f"{base} Tests/Week", 0, 1000, 20, key=f"vol_{test_category}_base")
+
+            complex_weekly_volume = base_weekly_volume * COMPLEX_CASE_PROBABILITIES.get(curly, 0.05)
+
             return {
                 base: {
-                    "weekly_volume": st.number_input(f"{base} Tests/Week", 0, 1000, 20, key=f"vol_{test_category}_base"),
+                    "weekly_volume": base_weekly_volume,
                     "admin_time": SIMPLIFIED_TIME[test_category]["admin"],
                     "nurse_time": SIMPLIFIED_TIME[test_category]["nurse"],
                     "doctor_time": SIMPLIFIED_TIME[test_category]["doctor"]
                 },
                 curly: {
-                    "weekly_volume": 1,
+                    "weekly_volume": complex_weekly_volume,
                     "research_time": SIMPLIFIED_TIME[test_category]["research"],
                     "genetic_time": 60
                 }
@@ -257,20 +264,34 @@ def get_test_configuration(test_category):
 
 # -------------------- CALCULATION FUNCTIONS --------------------
 
-def calculate_annual_staff_costs(staff, practice):
-    """Calculates annual staff costs based on user inputs."""
+def calculate_annual_staff_costs(staff, test_config, weeks_year):
+    """Calculates annual staff costs based on actual test workload rather than full-time hours."""
     try:
-        weekly_hours = practice["operation_days"] * 8  # 8-hour workdays
-        annual_hours = weekly_hours * practice["weeks_year"]
+        total_cost = 0.0
 
-        return sum([
-            staff["num_admin"] * staff["admin_hourly"] * annual_hours,
-            staff["num_nurse"] * staff["nurse_hourly"] * annual_hours,
-            staff["num_doctor"] * staff["doctor_hourly"] * annual_hours,
-            staff.get("num_genetic_counselor", 0) * staff.get("genetic_hourly", 0) * annual_hours
-        ])
+        for test_type, test_variants in test_config.items():
+            for variant, params in test_variants.items():
+                if "weekly_volume" not in params:
+                    continue
+
+                annual_volume = params["weekly_volume"] * weeks_year
+
+                admin_hours = (params.get("admin_time", 0) / 60) * annual_volume
+                nurse_hours = (params.get("nurse_time", 0) / 60) * annual_volume
+                doctor_hours = ((params.get("doctor_time", 0) + params.get("research_time", 0)) / 60) * annual_volume
+                genetic_hours = (params.get("genetic_time", 0) / 60) * annual_volume
+
+                total_cost += (
+                    admin_hours * staff["admin_hourly"] +
+                    nurse_hours * staff["nurse_hourly"] +
+                    doctor_hours * staff["doctor_hourly"] +
+                    genetic_hours * staff["genetic_hourly"]
+                )
+
+        return total_cost
+
     except Exception as e:
-        st.error(f"Error in staff cost calculation: {str(e)}")
+        st.error(f"Error in workload-based staff cost calculation: {str(e)}")
         return 0
 
 def calculate_logistical_costs(logistics):
@@ -289,7 +310,7 @@ def calculate_efficiency_savings(test_config, staff, weeks_year):
     for test_type, test_variants in test_config.items():
         for variant, params in test_variants.items():
             if "weekly_volume" not in params:
-                continue  
+                continue
 
             annual_volume = params["weekly_volume"] * weeks_year
 
@@ -305,9 +326,8 @@ def calculate_efficiency_savings(test_config, staff, weeks_year):
                 for role in ["admin", "nurse", "doctor", "genetic"]
             }
 
-            # Only for complex cases – patient genetic counseling savings
             if "Complex Cases" in variant:
-                probability = COMPLEX_CASE_PROBABILITIES.get(variant, 0.05)  # default 5%
+                probability = COMPLEX_CASE_PROBABILITIES.get(variant, 0.05)
                 potential_patient_savings = (
                     time_components["genetic"] * annual_volume *
                     GENETIC_COUNSELING_PRIVATE_COST * probability
@@ -336,7 +356,7 @@ def calculate_revenue(test_configs, specialty, billing_model, practice):
         for test_type, test_variants in test_configs.items():
             for variant, params in test_variants.items():
                 if "weekly_volume" not in params:
-                    continue  
+                    continue
 
                 annual_volume = params["weekly_volume"] * practice["weeks_year"]
                 rate = SPECIALTY_MBS[specialty][variant]["rate"]
@@ -363,6 +383,7 @@ def calculate_revenue(test_configs, specialty, billing_model, practice):
             additional_revenue = additional_patients * billing_model.get("private_hourly", 0)
 
         return total_revenue + additional_revenue, additional_revenue, total_doctor_hours_saved
+
     except Exception as e:
         st.error(f"Error in revenue calculation: {str(e)}")
         return 0, 0, 0
@@ -378,13 +399,14 @@ def run_calculations(practice, staff, billing, test_configs, logistics):
         "logistical_costs": 0.0,
         "net_annual_benefit": 0.0,
         "breakdown": {},
-        "potential_patient_savings": 0.0
+        "potential_patient_savings": 0.0,
+        "total_staff_hours_saved": 0.0
     }
 
     try:
-        results["staff_costs"] = calculate_annual_staff_costs(staff, practice)
+        results["staff_costs"] = calculate_annual_staff_costs(staff, test_configs, practice["weeks_year"])
         results["logistical_costs"] = calculate_logistical_costs(logistics)
-        
+
         savings_data, total_patient_savings = calculate_efficiency_savings(
             test_configs, staff, practice["weeks_year"]
         )
@@ -401,24 +423,127 @@ def run_calculations(practice, staff, billing, test_configs, logistics):
         results["additional_revenue"] = revenue_data[1]
         results["total_doctor_hours_saved"] = revenue_data[2]
 
+        # Calculate total staff hours saved across all roles
+        results["total_staff_hours_saved"] = sum(
+            (data["time_breakdown"]["admin"] +
+             data["time_breakdown"]["nurse"] +
+             data["time_breakdown"]["doctor"] +
+             data["time_breakdown"]["genetic"]) * data["annual_volume"]
+            for data in savings_data.values()
+        )
+
         results["net_annual_benefit"] = (
             results["total_annual_savings"] +
-            results["total_revenue"] - 
-            results["staff_costs"] - 
+            results["total_revenue"] -
+            results["staff_costs"] -
             results["logistical_costs"]
         )
+
     except Exception as e:
         st.error(f"Error in calculations: {str(e)}")
 
     return results
 
+# -------------------- EXPORT REPORT --------------------
+def export_to_excel():
+    if "results" not in st.session_state or not st.session_state["results"]:
+        st.warning("⚠️ No results to export. Please run the calculation first.")
+        return
+
+    results = st.session_state["results"]
+
+    # Check if revenue breakdown is present and not empty
+    if "Revenue Breakdown" not in results or results["Revenue Breakdown"].empty:
+        st.warning("⚠️ Revenue Breakdown is empty — please run the calculation again before exporting.")
+        return
+
+    show_logistics = (
+        st.session_state["user_type"] == "Owner/Manager" and
+        st.session_state.get("specialty") == "Fertility Specialist"
+    )
+
+    output = BytesIO()
+    with st.spinner("Generating Excel report..."):
+        with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
+            # Export revenue breakdown
+            results["Revenue Breakdown"].to_excel(writer, sheet_name="Revenue Breakdown", index=False)
+
+            # Export time and cost savings breakdown
+            if "breakdown" in results:
+                savings_data = []
+                for test_type, data in results["breakdown"].items():
+                    total_hours_saved = sum([
+                        data["time_breakdown"][role] * data["annual_volume"]
+                        for role in ["admin", "nurse", "doctor", "genetic"]
+                    ])
+                    savings_data.append({
+                        'Test Type': test_type,
+                        'Annual Volume': data["annual_volume"],
+                        'Total Savings ($)': data["total_savings"],
+                        'Admin Time Saved (hrs)': data["time_breakdown"]["admin"] * data["annual_volume"],
+                        'Nurse Time Saved (hrs)': data["time_breakdown"]["nurse"] * data["annual_volume"],
+                        'Doctor Time Saved (hrs)': data["time_breakdown"]["doctor"] * data["annual_volume"],
+                        'Genetic Counselor Time Saved (hrs)': data["time_breakdown"]["genetic"] * data["annual_volume"],
+                        'Total Staff Time Saved (hrs)': total_hours_saved
+                    })
+                df_savings = pd.DataFrame(savings_data)
+                df_savings.to_excel(writer, sheet_name="Time & Cost Savings", index=False)
+
+            # Export summary
+            total_time_saved = sum(
+                (data["time_breakdown"]["admin"] +
+                 data["time_breakdown"]["nurse"] +
+                 data["time_breakdown"]["doctor"] +
+                 data["time_breakdown"]["genetic"]) * data["annual_volume"]
+                for data in results["breakdown"].values()
+            )
+
+            summary_data = {
+                "Total Revenue": [results["total_revenue"]],
+                "Annual Savings": [results["total_annual_savings"]],
+                "Potential Patient Savings": [results["potential_patient_savings"]],
+                "Annual Doctor Time Saved (hrs)": [results["total_doctor_hours_saved"]],
+                "Total Staff Time Saved (hrs)": [total_time_saved],
+                "Workload-Based Staff Costs": [results["staff_costs"]]
+            }
+
+            if show_logistics:
+                summary_data["Logistical Costs"] = [results["logistical_costs"]]
+
+            df_summary = pd.DataFrame(summary_data)
+            df_summary.to_excel(writer, sheet_name="Summary", index=False)
+
+            # Export patient savings data
+            patient_savings_data = []
+            for test_type, data in results["breakdown"].items():
+                if "Complex Cases" in test_type and data["genetic_counselor_cost_avoided"] > 0:
+                    variant_name = test_type.split(' - ')[-1]
+                    probability = COMPLEX_CASE_PROBABILITIES.get(variant_name, 0.05)
+                    patient_savings_data.append({
+                        'Test Type': test_type,
+                        'Annual Complex Volume': data["annual_volume"],
+                        'Probability of Complex Finding': f"{probability * 100:.0f}%",
+                        'Potential Patient Savings ($)': data["genetic_counselor_cost_avoided"]
+                    })
+
+            if patient_savings_data:
+                df_patient_savings = pd.DataFrame(patient_savings_data)
+                df_patient_savings.to_excel(writer, sheet_name="Patient Savings", index=False)
+
+        output.seek(0)
+
+    st.download_button(
+        label="📥 Export Report to Excel",
+        data=output,
+        file_name="Eugene_ROI_Workload_Report.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+
+
 
 # -------------------- MAIN APP LAYOUT --------------------
 
 def show_before_after_animation(results):
-    import plotly.graph_objects as go
-    import time
-
     before_revenue = results['total_revenue'] - results['total_annual_savings']
     after_revenue = results['total_revenue']
 
@@ -429,7 +554,7 @@ def show_before_after_animation(results):
         y=[before_revenue],
         name='Before Eugene',
         marker_color='#1C1363',
-        hovertemplate='$%{y:,.0f}'
+        hovertemplate='Revenue before adopting Eugene.'
     ))
 
     fig.add_trace(go.Bar(
@@ -437,7 +562,7 @@ def show_before_after_animation(results):
         y=[0],
         name='After Eugene',
         marker_color='#6E62C5',
-        hovertemplate='$%{y:,.0f}'
+        hovertemplate='Revenue after adopting Eugene.'
     ))
 
     fig.update_layout(
@@ -461,6 +586,8 @@ def show_before_after_animation(results):
 
 def main():
     st.title("Eugene ROI Calculator")
+
+    debug_mode = st.sidebar.checkbox("🔎 Enable Debug Mode")
 
     if "results" not in st.session_state:
         st.session_state["results"] = {}
@@ -500,53 +627,59 @@ def main():
             "Comprehensive": get_test_configuration("Comprehensive")
         }
 
+        if debug_mode:
+            st.subheader("🔎 Debug Information")
+            st.write("Practice Profile:", practice)
+            st.write("Staff Config:", staff)
+            st.write("Billing Model:", billing)
+            st.write("Test Configurations:", test_configs)
+
+            specialty = practice["specialty"]
+            st.write(f"Checking MBS keys for specialty: {specialty}")
+            for test_type, test_variants in test_configs.items():
+                for variant in test_variants.keys():
+                    if variant not in SPECIALTY_MBS[specialty]:
+                        st.warning(f"⚠️ Variant '{variant}' is missing in MBS rates for {specialty}.")
+
         calculate = st.button("📊 Calculate ROI")
 
     with col_output:
         if calculate:
-            results = run_calculations(practice, staff, billing, test_configs, logistics)
-            st.session_state["results"] = results
+            with st.spinner("Calculating ROI..."):
+                results = run_calculations(practice, staff, billing, test_configs, logistics)
+                st.session_state["results"] = results
+            st.success("✅ ROI calculation completed successfully!")
 
             revenue_data = []
             for test_type, test_variants in test_configs.items():
                 for variant, params in test_variants.items():
-                    rate = SPECIALTY_MBS[practice["specialty"]][variant]["rate"]
-                    revenue = params["weekly_volume"] * practice["weeks_year"] * rate
-                    revenue_data.append({"Test Type": f"{test_type} - {variant}", "Revenue": revenue})
+                    try:
+                        if variant not in SPECIALTY_MBS[practice["specialty"]]:
+                            st.warning(f"⚠️ Skipping '{variant}' as it’s not defined in MBS rates for {practice['specialty']}")
+                            continue
+
+                        rate = SPECIALTY_MBS[practice["specialty"]][variant]["rate"]
+                        revenue = params["weekly_volume"] * practice["weeks_year"] * rate
+                        revenue_data.append({"Test Type": f"{test_type} - {variant}", "Revenue": revenue})
+                    except Exception as e:
+                        st.error(f"Error calculating revenue for '{variant}': {e}")
 
             df_revenue = pd.DataFrame(revenue_data)
             st.session_state["results"]["Revenue Breakdown"] = df_revenue
 
             st.header("📈 Financial Summary")
-            col1, col2, col3, col4, col5 = st.columns(5)
+            col1, col2, col3, col4 = st.columns(4)
 
-            col1.metric("Staff Costs", f"${results['staff_costs']:,.0f}")
+            col1.metric("Staff Costs", f"${results['staff_costs']:,.0f}", help="Estimated yearly cost of staff based on actual test workload")
+            col2.metric("Total Revenue", f"${results['total_revenue']:,.0f}", help="Total revenue from tests based on billing model")
+            col3.metric("Annual Savings", f"${results['total_annual_savings']:,.0f}", help="Annual efficiency savings from using Eugene")
+            col4.metric("Net Benefit", f"${results['net_annual_benefit']:,.0f}", help="Revenue + savings - staff costs - logistics costs")
 
-            if user_type == "Owner/Manager" and st.session_state.get("specialty") == "Fertility Specialist":
-                col2.metric("Logistical Costs", f"${results['logistical_costs']:,.0f}")
-            else:
-                col2.empty()
-
-            col3.metric("Total Revenue", f"${results['total_revenue']:,.0f}")
-            col4.metric("Annual Savings", f"${results['total_annual_savings']:,.0f}")
-            col5.metric("Net Benefit", f"${results['net_annual_benefit']:,.0f}",
-                        delta_color="inverse" if results['net_annual_benefit'] < 0 else "normal")
-
-            # ✅ Patient Benefits Display:
             st.subheader("💡 Patient Benefits")
-            colp1, colp2 = st.columns(2)
+            col_patient1, col_patient2 = st.columns([1, 3])
+            col_patient1.metric("Potential Patient Savings", f"${results['potential_patient_savings']:,.0f}", help="Estimated amount patients save by avoiding private genetic counseling")
+            col_patient2.write("**Using Eugene avoids an estimated 6-month public health wait time and includes genetic counseling at no extra cost.**")
 
-            colp1.metric(
-                "Potential Patient Savings",
-                f"${results['potential_patient_savings']:,.0f}",
-                help="Estimated savings for patients by avoiding private genetic counseling fees."
-            )
-
-            colp2.write(
-                "Using Eugene avoids an estimated 6-month public health wait time and includes genetic counseling at no extra cost."
-            )
-
-            # ✅ Corrected Patient Savings Breakdown (Complex Cases)
             with st.expander("🔎 Patient Savings Breakdown (Complex Cases)"):
                 patient_savings_data = []
                 for test_type, data in results["breakdown"].items():
@@ -559,43 +692,54 @@ def main():
                             'Probability of Complex Finding': f"{probability * 100:.0f}%",
                             'Potential Savings ($)': data["genetic_counselor_cost_avoided"]
                         })
-
                 if patient_savings_data:
                     df_patient_savings = pd.DataFrame(patient_savings_data)
                     st.dataframe(df_patient_savings.style.format({'Potential Savings ($)': '${:,.0f}'}))
-                else:
-                    st.write("No complex case volumes entered yet.")
 
             st.subheader("Annual Financial Overview")
-            import plotly.express as px
-            categories = ["Staff Costs", "Revenue", "Savings", "Net"]
+
+            categories = ["Annual Savings", "Potential Revenue"]
             amounts = [
-                results["staff_costs"],
-                results["total_revenue"],
                 results["total_annual_savings"],
-                results["net_annual_benefit"]
+                results["total_revenue"]
+            ]
+
+            explanations = [
+                "Time and efficiency savings generated by using Eugene.",
+                "Additional revenue opportunities unlocked."
             ]
 
             if user_type == "Owner/Manager" and st.session_state.get("specialty") == "Fertility Specialist":
-                categories.insert(1, "Logistics")
-                amounts.insert(1, results["logistical_costs"])
+                categories.append("Logistics Costs")
+                amounts.append(results["logistical_costs"])
+                explanations.append("Annual clinic logistics expenses.")
 
-            annual_data = {"Category": categories, "Amount": amounts}
+            overview_data = {"Category": categories, "Amount": amounts, "Explanation": explanations}
 
-            fig = px.bar(annual_data, x='Category', y='Amount',
-                         color='Category', text='Amount',
-                         color_discrete_map={
-                             'Staff Costs': '#6E62C5',
-                             'Logistics': '#5B93D1',
-                             'Revenue': '#1C1363',
-                             'Savings': '#00C853',
-                             'Net': '#6E62C5' if results["net_annual_benefit"] > 0 else '#FF4B4B'
-                         })
-            fig.update_traces(texttemplate='%{text:$,.2f}', textposition='outside')
+            fig = px.bar(
+                overview_data,
+                x='Category',
+                y='Amount',
+                color='Category',
+                text='Amount',
+                hover_data={'Explanation': True, 'Amount': False, 'Category': False},
+                color_discrete_map={
+                    'Annual Savings': '#00C853',
+                    'Potential Revenue': '#1C1363',
+                    'Logistics Costs': '#FF8C00'
+                }
+            )
+
+            fig.update_traces(
+                texttemplate='%{text:$.0f}',
+                textposition='outside',
+                hovertemplate='%{customdata[0]}'
+            )
+
             fig.update_layout(
-                title='Annual Financial Overview',
+                title='Workload Impact & Opportunity Overview',
                 xaxis=dict(title='Category'),
-                yaxis=dict(title='Amount ($)', tickformat=',.0f'),
+                yaxis=dict(title='Amount', tickformat=',.0f'),
                 showlegend=False,
                 xaxis_showgrid=False,
                 yaxis_showgrid=False
@@ -618,97 +762,15 @@ def main():
                         'Admin Time Saved (hrs)': data["time_breakdown"]["admin"] * data["annual_volume"],
                         'Nurse Time Saved (hrs)': data["time_breakdown"]["nurse"] * data["annual_volume"],
                         'Doctor Time Saved (hrs)': data["time_breakdown"]["doctor"] * data["annual_volume"],
-                        'Genetic Counselor Time Saved (hrs)': data["time_breakdown"]["genetic"] * data["annual_volume"],
+                        'Genetic Counselor Time Saved (hrs)': data["time_breakdown"]["genetic"] * data["annual_volume"]
                     })
                 df_savings = pd.DataFrame(savings_data)
                 st.dataframe(df_savings.style.format({'Total Savings ($)': '${:,.0f}'}))
 
-    # ✅ Excel Export Button
     st.subheader("⬇️ Download Report")
     if st.button("📥 Generate Excel Report"):
         export_to_excel()
+        st.success("✅ Excel report generated and ready for download!")
 
 if __name__ == "__main__":
     main()
-
-
-# -------------------- EXPORT REPORT --------------------
-
-def export_to_excel():
-    """Exports the results as an Excel file with conditional logistics and patient savings export."""
-    if "results" not in st.session_state or not st.session_state["results"]:
-        st.warning("⚠️ No results to export. Please run the calculation first.")
-        return
-
-    results = st.session_state["results"]
-
-    if "Revenue Breakdown" not in results:
-        st.error("🚨 Missing Revenue Breakdown! Please re-run calculations.")
-        return
-
-    show_logistics = (
-        st.session_state["user_type"] == "Owner/Manager" and
-        st.session_state.get("specialty") == "Fertility Specialist"
-    )
-
-    output = BytesIO()
-    with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
-        # Revenue Breakdown sheet
-        results["Revenue Breakdown"].to_excel(writer, sheet_name="Revenue Breakdown", index=False)
-
-        # Time & Cost Savings sheet
-        if "breakdown" in results:
-            savings_data = []
-            for test_type, data in results["breakdown"].items():
-                savings_data.append({
-                    'Test Type': test_type,
-                    'Annual Volume': data["annual_volume"],
-                    'Total Savings ($)': data["total_savings"],
-                    'Admin Time Saved (hrs)': data["time_breakdown"]["admin"] * data["annual_volume"],
-                    'Nurse Time Saved (hrs)': data["time_breakdown"]["nurse"] * data["annual_volume"],
-                    'Doctor Time Saved (hrs)': data["time_breakdown"]["doctor"] * data["annual_volume"],
-                    'Genetic Counselor Time Saved (hrs)': data["time_breakdown"]["genetic"] * data["annual_volume"],
-                })
-            df_savings = pd.DataFrame(savings_data)
-            df_savings.to_excel(writer, sheet_name="Time & Cost Savings", index=False)
-
-        # Summary sheet
-        summary_data = {
-            "Staff Costs": [results["staff_costs"]],
-            "Total Revenue": [results["total_revenue"]],
-            "Annual Savings": [results["total_annual_savings"]],
-            "Potential Patient Savings": [results["potential_patient_savings"]],
-            "Net Benefit": [results["net_annual_benefit"]]
-        }
-
-        if show_logistics:
-            summary_data["Logistical Costs"] = [results["logistical_costs"]]
-
-        df_summary = pd.DataFrame(summary_data)
-        df_summary.to_excel(writer, sheet_name="Summary", index=False)
-
-        # Patient Savings sheet
-        patient_savings_data = []
-        for test_type, data in results["breakdown"].items():
-            if "Complex Cases" in test_type and data["genetic_counselor_cost_avoided"] > 0:
-                variant_name = test_type.split(' - ')[-1]
-                probability = COMPLEX_CASE_PROBABILITIES.get(variant_name, 0.05)  # safe default at 5%
-                patient_savings_data.append({
-                    'Test Type': test_type,
-                    'Annual Complex Volume': data["annual_volume"],
-                    'Probability of Complex Finding': f"{probability * 100:.0f}%",
-                    'Potential Patient Savings ($)': data["genetic_counselor_cost_avoided"]
-                })
-        if patient_savings_data:
-            df_patient_savings = pd.DataFrame(patient_savings_data)
-            df_patient_savings.to_excel(writer, sheet_name="Patient Savings", index=False)
-
-    output.seek(0)
-
-    st.download_button(
-        label="📥 Export Report to Excel",
-        data=output,
-        file_name="Eugene_ROI_Report.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    )
-
