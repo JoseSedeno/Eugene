@@ -1,4 +1,5 @@
 # -------------------- PAGE CONFIG --------------------
+
 import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -7,7 +8,56 @@ import plotly.graph_objects as go
 import plotly.express as px
 import time
 
+
 st.set_page_config(page_title="Eugene ROI Calculator", layout="wide")
+
+# Custom CSS for styling
+custom_css = """
+<style>
+[data-testid="stAppViewContainer"] > .main {
+    background-image: url("https://i.imgur.com/f1xz2zt.png");
+    background-size: cover;
+    background-repeat: no-repeat;
+    background-attachment: fixed;
+}
+
+h1, h2, h3, h4, h5, h6, .stMarkdown {
+    color: #1C1363;
+}
+
+[data-testid="metric-container"] {
+    background-color: #F2F3FF;
+    border: 1px solid #DDD;
+    border-radius: 12px;
+    padding: 10px;
+    box-shadow: 0px 2px 8px rgba(0,0,0,0.05);
+}
+
+button.stButton {
+    background-color: #6E62C5;
+    color: white;
+    border-radius: 12px;
+    padding: 10px 20px;
+}
+
+button.stButton:hover {
+    background-color: #4E4A9C;
+}
+
+.st-expander {
+    background-color: #F2F3FF;
+    border-radius: 10px;
+}
+
+.stDataFrame {
+    background-color: white;
+    border-radius: 10px;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+}
+</style>
+"""
+st.markdown(custom_css, unsafe_allow_html=True)
+
 
 if "input_mode_selection" not in st.session_state:
     st.session_state["input_mode_selection"] = "Simplified"
@@ -317,6 +367,8 @@ def calculate_efficiency_savings(test_config, staff, weeks_year):
     savings = {}
     total_potential_patient_savings = 0.0
 
+    simplified_mode = st.session_state.get("input_mode_selection", "Simplified") == "Simplified"
+
     for test_type, test_variants in test_config.items():
         for variant, params in test_variants.items():
             if "weekly_volume" not in params:
@@ -338,10 +390,17 @@ def calculate_efficiency_savings(test_config, staff, weeks_year):
 
             if "Complex Cases" in variant:
                 probability = COMPLEX_CASE_PROBABILITIES.get(variant, 0.05)
-                potential_patient_savings = (
-                    time_components["genetic"] * annual_volume *
-                    GENETIC_COUNSELING_PRIVATE_COST * probability
-                )
+                if simplified_mode:
+                    potential_patient_savings = (
+                        time_components["genetic"] * annual_volume *
+                        GENETIC_COUNSELING_PRIVATE_COST * probability
+                    )
+                else:
+                    # In advanced mode, annual_volume = complex cases, no probability multiplier
+                    potential_patient_savings = (
+                        time_components["genetic"] * annual_volume *
+                        GENETIC_COUNSELING_PRIVATE_COST
+                    )
             else:
                 potential_patient_savings = 0.0
 
@@ -355,6 +414,7 @@ def calculate_efficiency_savings(test_config, staff, weeks_year):
             total_potential_patient_savings += potential_patient_savings
 
     return savings, total_potential_patient_savings
+
 
 def calculate_revenue(test_configs, specialty, billing_model, practice):
     """Calculates total revenue based on billing model and MBS rates."""
@@ -433,7 +493,6 @@ def run_calculations(practice, staff, billing, test_configs, logistics):
         results["additional_revenue"] = revenue_data[1]
         results["total_doctor_hours_saved"] = revenue_data[2]
 
-        # Calculate total staff hours saved across all roles
         results["total_staff_hours_saved"] = sum(
             (data["time_breakdown"]["admin"] +
              data["time_breakdown"]["nurse"] +
@@ -452,7 +511,11 @@ def run_calculations(practice, staff, billing, test_configs, logistics):
     except Exception as e:
         st.error(f"Error in calculations: {str(e)}")
 
+    if "Revenue Breakdown" not in results:
+        results["Revenue Breakdown"] = pd.DataFrame()
+
     return results
+
 
 # -------------------- EXPORT REPORT --------------------
 def export_to_excel():
@@ -551,8 +614,6 @@ def export_to_excel():
 
 
 
-# -------------------- MAIN APP LAYOUT --------------------
-
 def show_before_after_animation(results):
     before_revenue = results['total_revenue'] - results['total_annual_savings']
     after_revenue = results['total_revenue']
@@ -593,6 +654,7 @@ def show_before_after_animation(results):
         fig.data[1].y = [current_value]
         plot_placeholder.plotly_chart(fig, use_container_width=True)
         time.sleep(0.05)
+
 
 def main():
     st.title("Eugene ROI Calculator")
@@ -680,17 +742,18 @@ def main():
             st.header("📈 Financial Summary")
             col1, col2, col3, col4 = st.columns(4)
 
-            col1.metric("Staff Costs", f"${results['staff_costs']:,.0f}", help="Estimated yearly cost of staff based on actual test workload")
-            col2.metric("Total Revenue", f"${results['total_revenue']:,.0f}", help="Total revenue from tests based on billing model")
-            col3.metric("Annual Savings", f"${results['total_annual_savings']:,.0f}", help="Annual efficiency savings from using Eugene")
-            col4.metric("Net Benefit", f"${results['net_annual_benefit']:,.0f}", help="Revenue + savings - staff costs - logistics costs")
+            col1.metric("Staff Costs", f"${results['staff_costs']:,.0f}", help="Total annual staff costs based on actual workload.")
+            col2.metric("Total Revenue", f"${results['total_revenue']:,.0f}", help="Total revenue from tests, based on billing model and doctor time.")
+            col3.metric("Annual Efficiency Savings", f"${results['total_annual_savings']:,.0f}", help="Annual time and efficiency savings from using Eugene.")
+            col4.metric("Net Annual Benefit", f"${results['net_annual_benefit']:,.0f}", help="Revenue plus savings minus staff and logistics costs.")
 
             st.subheader("💡 Patient Benefits")
             col_patient1, col_patient2 = st.columns([1, 3])
-            col_patient1.metric("Potential Patient Savings", f"${results['potential_patient_savings']:,.0f}", help="Estimated amount patients save by avoiding private genetic counseling")
+            col_patient1.metric("Potential Patient Savings", f"${results['potential_patient_savings']:,.0f}", help="Money patients save by using Eugene, which includes genetic counseling for complex cases (valued at $500/hour).")
             col_patient2.write("**Using Eugene avoids an estimated 6-month public health wait time and includes genetic counseling at no extra cost.**")
 
             with st.expander("🔎 Patient Savings Breakdown (Complex Cases)"):
+                st.caption("Estimated complex case volumes and the value of included counseling savings.")
                 patient_savings_data = []
                 for test_type, data in results["breakdown"].items():
                     if "Complex Cases" in test_type and data["genetic_counselor_cost_avoided"] > 0:
@@ -699,16 +762,16 @@ def main():
                         patient_savings_data.append({
                             'Test Type': test_type,
                             'Annual Complex Volume': data["annual_volume"],
-                            'Probability of Complex Finding': f"{probability * 100:.0f}%",
+                            'Probability of Complex Finding': f"{probability * 100:.0f}%" if input_mode == "Simplified" else "Manual Entry",
                             'Potential Savings ($)': data["genetic_counselor_cost_avoided"]
                         })
                 if patient_savings_data:
                     df_patient_savings = pd.DataFrame(patient_savings_data)
                     st.dataframe(df_patient_savings.style.format({'Potential Savings ($)': '${:,.0f}'}))
 
-            st.subheader("Annual Financial Overview")
+            st.subheader("Eugene’s Impact: Savings and Revenue Opportunities")
 
-            categories = ["Annual Savings", "Potential Revenue"]
+            categories = ["Annual Efficiency Savings", "Potential Additional Revenue"]
             amounts = [
                 results["total_annual_savings"],
                 results["total_revenue"]
@@ -716,7 +779,7 @@ def main():
 
             explanations = [
                 "Time and efficiency savings generated by using Eugene.",
-                "Additional revenue opportunities unlocked."
+                "Additional revenue opportunities unlocked for your clinic."
             ]
 
             if user_type == "Owner/Manager" and st.session_state.get("specialty") == "Fertility Specialist":
@@ -734,8 +797,8 @@ def main():
                 text='Amount',
                 hover_data={'Explanation': True, 'Amount': False, 'Category': False},
                 color_discrete_map={
-                    'Annual Savings': '#00C853',
-                    'Potential Revenue': '#1C1363',
+                    'Annual Efficiency Savings': '#00C853',
+                    'Potential Additional Revenue': '#1C1363',
                     'Logistics Costs': '#FF8C00'
                 }
             )
@@ -747,7 +810,7 @@ def main():
             )
 
             fig.update_layout(
-                title='Workload Impact & Opportunity Overview',
+                title='Eugene’s Impact: Savings and Revenue Opportunities',
                 xaxis=dict(title='Category'),
                 yaxis=dict(title='Amount', tickformat=',.0f'),
                 showlegend=False,
@@ -760,6 +823,7 @@ def main():
             show_before_after_animation(results)
 
             with st.expander("📊 Revenue Breakdown"):
+                st.caption("Revenue by test type based on Medicare and private billing.")
                 st.dataframe(df_revenue.style.format({'Revenue': '${:,.0f}'}))
 
             with st.expander("⏳ Time & Cost Savings Breakdown"):
@@ -778,9 +842,10 @@ def main():
                 st.dataframe(df_savings.style.format({'Total Savings ($)': '${:,.0f}'}))
 
     st.subheader("⬇️ Download Report")
-    if st.button("📥 Generate Excel Report"):
+    if st.button("📥 Export Full Financial Report"):
         export_to_excel()
         st.success("✅ Excel report generated and ready for download!")
+
 
 if __name__ == "__main__":
     main()
