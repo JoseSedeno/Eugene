@@ -1,4 +1,5 @@
 # -------------------- PAGE CONFIG --------------------
+
 import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -7,18 +8,19 @@ import plotly.graph_objects as go
 import plotly.express as px
 import time
 
+# Set Streamlit page config
 st.set_page_config(page_title="Eugene ROI Calculator", layout="wide")
 
 # Custom CSS for styling
 custom_css = """
 <style>
-[data-testid="stAppViewContainer"] > .main {
-    background-image: url("https://raw.githubusercontent.com/JoseSedeno/Eugene/main/background.jpg");
+[data-testid="stAppViewContainer"] {
+    background-image: url('https://raw.githubusercontent.com/JoseSedeno/Eugene/main/background.jpg');
     background-size: cover;
     background-repeat: no-repeat;
     background-attachment: fixed;
+    background-position: center;
 }
-
 
 h1, h2, h3, h4, h5, h6, .stMarkdown {
     color: #1C1363;
@@ -55,8 +57,11 @@ button.stButton:hover {
 }
 </style>
 """
+
+# Apply the custom CSS
 st.markdown(custom_css, unsafe_allow_html=True)
 
+# Initialize session state
 if "input_mode_selection" not in st.session_state:
     st.session_state["input_mode_selection"] = "Simplified"
 if "user_type" not in st.session_state:
