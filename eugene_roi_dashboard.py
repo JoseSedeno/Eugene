@@ -8,14 +8,13 @@ import plotly.graph_objects as go
 import plotly.express as px
 import time
 
-
 st.set_page_config(page_title="Eugene ROI Calculator", layout="wide")
 
 # Custom CSS for styling
 custom_css = """
 <style>
 [data-testid="stAppViewContainer"] > .main {
-    background-image: url("https://i.imgur.com/f1xz2zt.png");
+    background-image: url("https://raw.githubusercontent.com/JoseSedeno/Eugene/refs/heads/main/DALL%C2%B7E%202025-03-25%2014.57.11%20-%20A%20clean%2C%20seamless%2C%20soft%20pastel%20gradient%20background%20featuring%20elegant%2C%20subtle%20DNA%20helix%20patterns.%20The%20background%20has%20smooth%20gradients%20from%20light%20blue%20t.webp");
     background-size: cover;
     background-repeat: no-repeat;
     background-attachment: fixed;
@@ -58,13 +57,14 @@ button.stButton:hover {
 """
 st.markdown(custom_css, unsafe_allow_html=True)
 
-
 if "input_mode_selection" not in st.session_state:
     st.session_state["input_mode_selection"] = "Simplified"
 if "user_type" not in st.session_state:
     st.session_state["user_type"] = "Doctor/Clinician"
 if "results" not in st.session_state:
     st.session_state["results"] = {}
+
+
 
 
 # -------------------- LOGO PLACEHOLDER --------------------
